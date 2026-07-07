@@ -124,6 +124,15 @@
                 </div>
             </div>
 
+            <div class="flex items-center gap-3 mt-4 md:mt-0"> <!-- Added mt-4 for spacing on small screens -->
+                <button onclick="addNewSwitch()" class="flex items-center gap-1.5 bg-brand-panel border border-brand-border hover:bg-brand-accent text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow">
+                    <span class="material-symbols-outlined text-sm">add_circle</span> Adicionar Switch
+                </button>
+                <button onclick="removeCurrentSwitch()" class="flex items-center gap-1.5 bg-brand-panel border border-brand-border hover:bg-brand-danger text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow">
+                    <span class="material-symbols-outlined text-sm">delete</span> Remover Switch
+                </button>
+            </div>
+
             <div class="w-full md:w-80">
                 <label class="text-[11px] uppercase tracking-wider font-bold text-brand-textMuted block mb-1">Pesquisa Global Rápida</label>
                 <div class="relative">
@@ -232,8 +241,8 @@
     </div>
 
     <script>
-        const EXCEL_FILE = 'IFSP-RGT Mapeamento Switch.xlsx';
-        const JSON_FILE = 'backup_infraestrutura_ifsp_rgt.json';
+        const EXCEL_FILE = 'src/files/IFSP-RGT Mapeamento Switch.xlsx';
+        const JSON_FILE = 'src/files/backup_infraestrutura_ifsp_rgt.json';
 
         let runtimeNetworkState = { switches: {}, vlans: [] };
         let activeSwitchKey = "";
@@ -436,8 +445,9 @@
         function exportStateBackupJSON() {
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(runtimeNetworkState, null, 4));
             const downloadAnchor = document.createElement('a');
+            const filename = JSON_FILE.split('/').pop(); // Extrai apenas o nome do arquivo
             downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", JSON_FILE);
+            downloadAnchor.setAttribute("download", filename); // Usa o nome do arquivo sem o caminho
             document.body.appendChild(downloadAnchor);
             downloadAnchor.click();
             downloadAnchor.remove();
@@ -474,7 +484,15 @@
             vlanFilter.innerHTML = '<option value="ALL">Todas as portas</option>';
 
             const swKeys = Object.keys(runtimeNetworkState.switches);
-            if(swKeys.length === 0) return;
+            if(swKeys.length === 0) {
+                // Clear switch details if no switches are left
+                document.getElementById('edit-sw-name').value = '';
+                document.getElementById('edit-sw-ip').value = '';
+                document.getElementById('edit-sw-local').value = '';
+                document.getElementById('ports-grid').innerHTML = '<div class="col-span-full text-center py-12 text-brand-textMuted text-sm">Nenhum switch configurado. Adicione um novo!</div>';
+                activeSwitchKey = ""; // No active switch
+                return;
+            }
 
             swKeys.forEach(k => {
                 let dev = runtimeNetworkState.switches[k];
@@ -495,6 +513,7 @@
                 select.value = currentSelectedValue;
                 changeSwitch(currentSelectedValue);
             } else {
+                // If the previously selected switch was removed, select the first one
                 changeSwitch(swKeys[0]);
             }
             renderVlansSidebarUI();
@@ -503,7 +522,15 @@
         function changeSwitch(key) {
             activeSwitchKey = key;
             const sw = runtimeNetworkState.switches[key];
-            if(!sw) return;
+            if(!sw) {
+                // This case should ideally be handled by populateSelectorsUI if no switches are left
+                // But as a safeguard, clear UI if an invalid key is passed
+                document.getElementById('edit-sw-name').value = '';
+                document.getElementById('edit-sw-ip').value = '';
+                document.getElementById('edit-sw-local').value = '';
+                document.getElementById('ports-grid').innerHTML = '<div class="col-span-full text-center py-12 text-brand-textMuted text-sm">Selecione um switch ou adicione um novo.</div>';
+                return;
+            }
 
             document.getElementById('edit-sw-name').value = sw.name;
             document.getElementById('edit-sw-ip').value = sw.ip;
@@ -524,7 +551,11 @@
 
         function applyFilters() {
             const sw = runtimeNetworkState.switches[activeSwitchKey];
-            if(!sw || !sw.ports) return;
+            if(!sw || !sw.ports) {
+                document.getElementById('ports-grid').innerHTML = '<div class="col-span-full text-center py-12 text-brand-textMuted text-sm">Nenhum switch selecionado ou portas não encontradas.</div>';
+                document.getElementById('showing-ports-count').innerText = `Exibindo 0 de 0 interfaces`;
+                return;
+            }
 
             const selectedVlan = document.getElementById('vlan-filter').value;
             const searchQuery = document.getElementById('dashboard-search').value.toLowerCase().trim();
@@ -656,6 +687,68 @@
                 `;
                 container.appendChild(card);
             });
+        }
+
+        // --- NOVAS FUNÇÕES PARA GERENCIAMENTO DE SWITCHES ---
+        function addNewSwitch() {
+            const name = prompt("Nome do novo Switch (ex: SW-CORE-01):");
+            if (!name || name.trim() === "") {
+                alert("Nome do switch não pode ser vazio.");
+                return;
+            }
+
+            const marca = prompt("Marca/Tipo do Switch (ex: Cisco, HP, Genérico):", "Genérico");
+            const ip = prompt("Endereço IP Administrativo (ex: 192.168.1.1):", "0.0.0.0");
+            const local = prompt("Localização Física / Rack (ex: Sala Servidores, Rack 42U):", "Não Informado");
+
+            let numPorts = prompt("Número de portas do Switch (ex: 24, 48):", "24");
+            numPorts = parseInt(numPorts);
+            if (isNaN(numPorts) || numPorts <= 0) {
+                alert("Número de portas inválido. Deve ser um número positivo.");
+                return;
+            }
+
+            const uniqueKey = name.trim().replace(/[.\\[\\]\s]/g, "_").toUpperCase();
+            if (runtimeNetworkState.switches[uniqueKey]) {
+                alert(`Já existe um switch com o nome '${name}'. Por favor, escolha um nome diferente.`);
+                return;
+            }
+
+            const newPorts = {};
+            for (let i = 1; i <= numPorts; i++) {
+                newPorts[i] = { mode: "LIVRE", vlan: "-", device: "Pronta para provisionamento." };
+            }
+
+            runtimeNetworkState.switches[uniqueKey] = {
+                name: name.trim(),
+                marca: marca.trim(),
+                ip: ip.trim(),
+                local: local.trim(),
+                ports: newPorts
+            };
+
+            totalModificationCounter++;
+            alert(`Switch '${name}' adicionado com sucesso!`);
+            updateDashboardMetrics();
+            populateSelectorsUI();
+            changeSwitch(uniqueKey); // Select the newly added switch
+        }
+
+        function removeCurrentSwitch() {
+            if (!activeSwitchKey) {
+                alert("Nenhum switch selecionado para remover.");
+                return;
+            }
+
+            const swName = runtimeNetworkState.switches[activeSwitchKey].name;
+            if (confirm(`Tem certeza que deseja remover o switch '${swName}'? Esta ação não pode ser desfeita.`)) {
+                delete runtimeNetworkState.switches[activeSwitchKey];
+                totalModificationCounter++;
+                alert(`Switch '${swName}' removido com sucesso.`);
+                activeSwitchKey = ""; // Clear active selection
+                updateDashboardMetrics();
+                populateSelectorsUI(); // Re-populate and select first available or clear UI
+            }
         }
     </script>
 </body>
