@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFSP-RGT - NOC Hybrid Live System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@200,0..1" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Manrope', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            dark: '#0B111E', card: '#151D30', accent: '#3B82F6',
+                            success: '#10B981', warning: '#F59E0B', danger: '#EF4444',
+                            border: '#24324F', textMuted: '#94A3B8', panel: '#1E293B'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B111E; color: #F8FAFC; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0B111E; }
+        ::-webkit-scrollbar-thumb { background: #24324F; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3B82F6; }
+    </style>
+</head>
+<body class="font-sans antialiased min-h-screen flex flex-col">
+
+    <header class="bg-brand-card border-b border-brand-border sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="bg-brand-accent/20 text-brand-accent p-2 rounded-xl flex items-center justify-center shadow-inner">
+                <span class="material-symbols-outlined font-bold text-xl">sync_saved_locally</span>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-lg font-bold tracking-tight text-white">NOC Live Hybrid Editor</h1>
+                    <span class="text-[11px] font-medium bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1" id="origin-badge">
+                        <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span> Sincronizando...
+                    </span>
+                </div>
+                <p class="text-xs text-brand-textMuted">Prioridade: Planilha Excel ➔ Contingência e Edições: Arquivo JSON local.</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <button onclick="triggerApplyChanges()" class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-md">
+                <span class="material-symbols-outlined text-sm">done_all</span> Aplicar Alterações
+            </button>
+            <button onclick="saveAndOverwriteLocalState()" class="flex items-center gap-1.5 bg-brand-panel border border-brand-border hover:bg-brand-border text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow">
+                <span class="material-symbols-outlined text-sm">save_as</span> Salvar na Pasta Local
+            </button>
+            <button onclick="exportStateBackupJSON()" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow">
+                <span class="material-symbols-outlined text-sm">download</span> Forçar Download Backup
+            </button>
+            <label class="flex items-center gap-1.5 bg-brand-panel border border-brand-border hover:border-brand-accent text-white text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-all">
+                <span class="material-symbols-outlined text-sm">upload_file</span> Importação Manual
+                <input type="file" id="universal-file-input" accept=".xlsx,.json" class="hidden">
+            </label>
+        </div>
+    </header>
+
+    <main class="flex-1 p-6 max-w-[1700px] mx-auto w-full space-y-6">
+
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-brand-card border border-brand-border rounded-xl p-4 flex items-center justify-between shadow-md">
+                <div class="space-y-1">
+                    <span class="text-xs text-brand-textMuted font-medium block">Switches em Memória</span>
+                    <h3 class="text-2xl font-bold text-white tracking-tight" id="stat-total-switches">0</h3>
+                    <span class="text-[10px] text-brand-accent flex items-center gap-0.5">Editáveis em tempo de execução</span>
+                </div>
+                <div class="p-3 bg-brand-accent/10 text-brand-accent rounded-xl"><span class="material-symbols-outlined text-xl">router</span></div>
+            </div>
+
+            <div class="bg-brand-card border border-brand-border rounded-xl p-4 flex items-center justify-between shadow-md">
+                <div class="space-y-1">
+                    <span class="text-xs text-brand-textMuted font-medium block">Interfaces Ativas</span>
+                    <h3 class="text-2xl font-bold text-emerald-400 tracking-tight" id="stat-active-ports">0</h3>
+                    <span class="text-[10px] text-brand-textMuted flex items-center gap-0.5">Portas Trunk ou Access</span>
+                </div>
+                <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl"><span class="material-symbols-outlined text-xl">lan</span></div>
+            </div>
+
+            <div class="bg-brand-card border border-brand-border rounded-xl p-4 flex items-center justify-between shadow-md">
+                <div class="space-y-1">
+                    <span class="text-xs text-brand-textMuted font-medium block">Mapeamento de VLANs</span>
+                    <h3 class="text-2xl font-bold text-amber-400 tracking-tight" id="stat-total-vlans">0</h3>
+                    <span class="text-[10px] text-amber-400/80 flex items-center gap-0.5" id="stat-dhcp-count">Zonas lógicas ativas</span>
+                </div>
+                <div class="p-3 bg-amber-500/10 text-amber-400 rounded-xl"><span class="material-symbols-outlined text-xl">layers</span></div>
+            </div>
+
+            <div class="bg-brand-card border border-brand-border rounded-xl p-4 flex items-center justify-between shadow-md">
+                <div class="space-y-1">
+                    <span class="text-xs text-brand-textMuted font-medium block">Alterações Pendentes</span>
+                    <h3 class="text-2xl font-bold text-blue-400 tracking-tight" id="stat-unsaved-changes">0</h3>
+                    <span class="text-[10px] text-brand-success flex items-center gap-0.5">Sessão em buffer volátil</span>
+                </div>
+                <div class="p-3 bg-blue-500/10 text-brand-accent rounded-xl"><span class="material-symbols-outlined text-xl">memory</span></div>
+            </div>
+        </section>
+
+        <section class="bg-brand-card border border-brand-border rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
+                <div class="w-full sm:w-64">
+                    <label class="text-[11px] uppercase tracking-wider font-bold text-brand-textMuted block mb-1">Equipamento Atual</label>
+                    <select id="switch-selector" onchange="changeSwitch(this.value)" class="w-full bg-brand-dark border border-brand-border text-sm rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-accent">
+                        <option value="">Buscando fontes locais...</option>
+                    </select>
+                </div>
+                <div class="w-full sm:w-56">
+                    <label class="text-[11px] uppercase tracking-wider font-bold text-brand-textMuted block mb-1">Filtrar por VLAN</label>
+                    <select id="vlan-filter" onchange="applyFilters()" class="w-full bg-brand-dark border border-brand-border text-sm rounded-lg px-3 py-2 text-white focus:outline-none focus:border-brand-accent">
+                        <option value="ALL">Todas as portas</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="w-full md:w-80">
+                <label class="text-[11px] uppercase tracking-wider font-bold text-brand-textMuted block mb-1">Pesquisa Global Rápida</label>
+                <div class="relative">
+                    <span class="material-symbols-outlined absolute left-3 top-2.5 text-xs text-brand-textMuted">search</span>
+                    <input type="text" id="dashboard-search" oninput="applyFilters()" placeholder="Ex: Central, Servidor, Bloco..." class="w-full bg-brand-dark border border-brand-border text-sm rounded-lg pl-9 pr-3 py-1.5 text-white placeholder-brand-textMuted/60 focus:outline-none focus:border-brand-accent">
+                </div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="col-span-1 lg:col-span-8 bg-brand-card border border-brand-border rounded-xl p-5 space-y-5">
+                <div class="bg-brand-dark/50 p-4 rounded-xl border border-brand-border/60">
+                    <div class="flex items-center justify-between border-b border-brand-border pb-2 mb-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-accent">Identificação do Ativo Selecionado</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div>
+                            <label class="text-brand-textMuted block mb-1">Nome do Dispositivo</label>
+                            <input type="text" id="edit-sw-name" oninput="updateCurrentSwitchMetadata()" class="w-full bg-brand-card border border-brand-border rounded p-2 text-white focus:border-brand-accent outline-none">
+                        </div>
+                        <div>
+                            <label class="text-brand-textMuted block mb-1">Endereço IP Administrativo</label>
+                            <input type="text" id="edit-sw-ip" oninput="updateCurrentSwitchMetadata()" class="w-full bg-brand-card border border-brand-border rounded p-2 text-white font-mono focus:border-brand-accent outline-none">
+                        </div>
+                        <div>
+                            <label class="text-brand-textMuted block mb-1">Localização Física / Rack</label>
+                            <input type="text" id="edit-sw-local" oninput="updateCurrentSwitchMetadata()" class="w-full bg-brand-card border border-brand-border rounded p-2 text-white focus:border-brand-accent outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-brand-textMuted flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5 bg-brand-accent rounded-full"></span> Matriz de Conectividade (Clique para Editar)
+                        </h4>
+                        <span class="text-[11px] text-brand-textMuted" id="showing-ports-count">Verificando topologia local...</span>
+                    </div>
+                    <div class="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 xl:grid-cols-12 gap-2 bg-brand-dark p-4 rounded-xl border border-brand-border" id="ports-grid">
+                        <div class="col-span-full text-center py-12 text-brand-textMuted text-sm">Tentando sincronização automática...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-1 lg:col-span-4 flex flex-col gap-4">
+                <div class="bg-brand-card border border-brand-border rounded-xl p-5 space-y-4 shadow-lg hidden" id="live-port-editor-panel">
+                    <div class="flex items-center justify-between border-b border-brand-border pb-3">
+                        <div class="flex items-center gap-2 text-brand-accent">
+                            <span class="material-symbols-outlined">tune</span>
+                            <h3 class="text-sm font-bold text-white">Editar Interface: <span id="editor-port-id" class="text-brand-accent font-mono"></span></h3>
+                        </div>
+                        <button onclick="closeEditorPanel()" class="text-brand-textMuted hover:text-white transition-colors"><span class="material-symbols-outlined text-sm">close</span></button>
+                    </div>
+
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="text-brand-textMuted block mb-1 font-medium">Modo Operacional da Porta</label>
+                            <select id="editor-port-mode" onchange="syncPortChangesToMemory()" class="w-full bg-brand-dark border border-brand-border rounded p-2 text-white focus:border-brand-accent outline-none">
+                                <option value="LIVRE">LIVRE / SEM CONFIGURAÇÃO</option>
+                                <option value="ACCESS">ACCESS (Acesso Untagged)</option>
+                                <option value="TRUNK">TRUNK (Tronco Tagged)</option>
+                                <option value="CONFIGURADA">CUSTOM / OUTRO</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-brand-textMuted block mb-1 font-medium">VLAN Vinculada / Tag IDs</label>
+                            <input type="text" id="editor-port-vlan" oninput="syncPortChangesToMemory()" class="w-full bg-brand-dark border border-brand-border rounded p-2 text-white font-mono focus:border-brand-accent outline-none">
+                        </div>
+                        <div>
+                            <label class="text-brand-textMuted block mb-1 font-medium">Descrição Completa</label>
+                            <textarea id="editor-port-device" oninput="syncPortChangesToMemory()" rows="4" class="w-full bg-brand-dark border border-brand-border rounded p-2 text-white font-mono text-[11px] focus:border-brand-accent outline-none resize-none"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-brand-card border border-brand-border rounded-xl p-5 flex flex-col flex-1">
+                    <div class="flex items-center justify-between pb-3 border-b border-brand-border mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-brand-warning">layers</span>
+                            <h3 class="text-sm font-bold text-white">Zoneamento Lógico (VLANs)</h3>
+                        </div>
+                        <button onclick="addNewVlanRow()" class="text-[11px] bg-brand-accent/10 text-brand-accent border border-brand-accent/30 px-2 py-1 rounded hover:bg-brand-accent/20 flex items-center gap-0.5 transition-colors">
+                            <span class="material-symbols-outlined text-xs font-bold">add</span> Nova VLAN
+                        </button>
+                    </div>
+                    <div class="space-y-2 overflow-y-auto max-h-[450px] flex-1 pr-1" id="vlans-list-container"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="confirmation-modal" class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-brand-card border border-brand-border rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4 transform scale-95 transition-all">
+            <div class="flex items-center gap-3 text-brand-warning">
+                <span class="material-symbols-outlined text-2xl">published_with_changes</span>
+                <h3 class="text-base font-bold text-white">Aplicar Alterações Logísticas?</h3>
+            </div>
+            <p class="text-xs text-brand-textMuted leading-relaxed">
+                Você está prestes a gravar o estado atual da topologia na memória ativa do dashboard. Deseja prosseguir com a consolidação dos dados?
+            </p>
+            <div class="flex items-center justify-end gap-2 text-xs pt-2">
+                <button onclick="closeConfirmationModal()" class="px-4 py-2 bg-brand-panel border border-brand-border rounded-lg text-white font-medium hover:bg-brand-dark transition-colors">Cancelar</button>
+                <button onclick="confirmAndApplyChanges()" class="px-4 py-2 bg-blue-600 rounded-lg text-white font-semibold hover:bg-blue-700 transition-all shadow shadow-blue-600/30">Aplicar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const EXCEL_FILE = 'IFSP-RGT Mapeamento Switch.xlsx';
+        const JSON_FILE = 'backup_infraestrutura_ifsp_rgt.json';
+
+        let runtimeNetworkState = { switches: {}, vlans: [] };
+        let activeSwitchKey = "";
+        let activePortEditingId = null;
+        let totalModificationCounter = 0;
+
+        window.onload = function() {
+            initSystemPriorityChain();
+
+            document.getElementById('universal-file-input').addEventListener('change', function(e) {
+                const targetFile = e.target.files[0];
+                if (!targetFile) return;
+                processRawFile(targetFile);
+            });
+        };
+
+        function initSystemPriorityChain() {
+            const badge = document.getElementById('origin-badge');
+
+            fetch(EXCEL_FILE)
+                .then(res => {
+                    if(!res.ok) throw new Error("Planilha ausente. Iniciando contingência JSON.");
+                    return res.arrayBuffer();
+                })
+                .then(buffer => {
+                    badge.innerHTML = '<span class="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span> Fonte: Planilha Excel';
+                    badge.className = "text-[11px] font-medium bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1";
+                    executeWorkbookParse(buffer);
+                })
+                .catch(err => {
+                    console.log(err.message);
+                    fetch(JSON_FILE)
+                        .then(res => {
+                            if(!res.ok) throw new Error("Nenhuma base local encontrada.");
+                            return res.json();
+                        })
+                        .then(jsonData => {
+                            badge.innerHTML = '<span class="w-1.5 h-1.5 bg-amber-400 rounded-full"></span> Fonte: JSON local';
+                            badge.className = "text-[11px] font-medium bg-amber-600/30 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1";
+                            runtimeNetworkState = jsonData;
+                            updateDashboardMetrics();
+                            populateSelectorsUI();
+                        })
+                        .catch(() => {
+                            badge.innerHTML = '<span class="w-1.5 h-1.5 bg-red-400 rounded-full"></span> Aguardando Importação';
+                            badge.className = "text-[11px] font-medium bg-red-600/30 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full flex items-center gap-1";
+                            document.getElementById('ports-grid').innerHTML = '<div class="col-span-full text-center py-12 text-brand-textMuted text-sm">Insira a Planilha ou o JSON gerado usando o botão de importação acima.</div>';
+                        });
+                });
+        }
+
+        function processRawFile(file) {
+            const reader = new FileReader();
+            if (file.name.endsWith('.json')) {
+                reader.onload = function(evt) {
+                    runtimeNetworkState = JSON.parse(evt.target.result);
+                    totalModificationCounter++;
+                    updateDashboardMetrics();
+                    populateSelectorsUI();
+                };
+                reader.readAsText(file);
+            } else if (file.name.endsWith('.xlsx')) {
+                reader.onload = function(evt) { executeWorkbookParse(evt.target.result); };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        function executeWorkbookParse(buffer) {
+            const arr = new Uint8Array(buffer);
+            const workbook = XLSX.read(arr, { type: 'array' });
+
+            const vlanTab = workbook.SheetNames.find(s => s.toLowerCase().includes('vlan')) || workbook.SheetNames[1];
+            if (vlanTab) parseVlansData(workbook.Sheets[vlanTab]);
+
+            const switchTab = workbook.SheetNames.find(s => s.toLowerCase().includes('switch')) || workbook.SheetNames[2];
+            if (switchTab) parseSwitchesData(workbook.Sheets[switchTab]);
+
+            updateDashboardMetrics();
+            populateSelectorsUI();
+        }
+
+        function parseVlansData(sheet) {
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            runtimeNetworkState.vlans = [];
+            let startRow = 2;
+            for(let i=0; i<rows.length; i++) {
+                if(rows[i] && rows[i].join('').toLowerCase().includes('vlansid')) { startRow = i + 1; break; }
+            }
+            for (let i = startRow; i < rows.length; i++) {
+                const r = rows[i];
+                if (r && r[1] !== undefined && r[1] !== '') {
+                    runtimeNetworkState.vlans.push({
+                        id: r[1].toString().trim(),
+                        ip: r[2] || '---',
+                        desc: r[3] || 'Rede Operacional',
+                        dhcp: r[6] || 'NÃO'
+                    });
+                }
+            }
+            renderVlansSidebarUI();
+        }
+
+        function parseSwitchesData(rowsStructure) {
+            const rows = XLSX.utils.sheet_to_json(rowsStructure, { header: 1 });
+            runtimeNetworkState.switches = {};
+            let activeSw = null;
+
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                if (!r || r.length === 0) continue;
+
+                if (r[1] && (r[1].toString().toLowerCase().includes('marca') || r[1].toString().toLowerCase().includes('equipamento'))) {
+                    let marca = r[2] || 'Switch Genérico';
+                    let nome = r[3] || rows[i+1]?.[3] || marca;
+                    if(nome.toLowerCase().includes('local') || nome.toLowerCase().includes('ip')) nome = marca;
+
+                    let ip = '', local = '';
+                    for (let j = 1; j <= 5; j++) {
+                        let subRow = rows[i + j];
+                        if (subRow && subRow[1]) {
+                            let tag = subRow[1].toString().toLowerCase();
+                            if (tag.includes('local')) local = subRow[2] || '';
+                            if (tag.includes('ip')) ip = subRow[2] || '---';
+                        }
+                    }
+
+                    let uniqueKey = nome.toString().trim().replace(/[.\\[\\]]/g, "_");
+                    activeSw = { name: nome, marca: marca, ip: ip, local: local, ports: {} };
+                    runtimeNetworkState.switches[uniqueKey] = activeSw;
+                }
+
+                if (activeSw && r.some(c => c && c.toString().toLowerCase().includes('porta '))) {
+                    let headers = r;
+                    let descriptions = rows[i + 1] || [];
+
+                    for (let cIdx = 0; cIdx < headers.length; cIdx++) {
+                        let cell = headers[cIdx];
+                        if (cell && cell.toString().toLowerCase().includes('porta ')) {
+                            let match = cell.toString().match(/\d+/);
+                            let pNum = match ? parseInt(match[0]) : cell.toString().replace('Porta ', '').trim();
+                            let txt = (descriptions[cIdx] || '').toString().trim();
+
+                            let mode = "LIVRE", vlan = "-";
+                            if (txt.toUpperCase().includes("TRUNK")) {
+                                mode = "TRUNK";
+                                let vlMatch = txt.match(/VLAN[S]?\s*-\s*([\d,\s]+)/i) || txt.match(/VLAN[S]?\s*([\d,\s]+)/i);
+                                vlan = vlMatch ? vlMatch[1].trim() : "Todas";
+                            } else if (txt.toUpperCase().includes("ACCESS")) {
+                                mode = "ACCESS";
+                                let vlMatch = txt.match(/VLAN\s*(\d+)/i);
+                                vlan = vlMatch ? vlMatch[1].trim() : "19";
+                            } else if (txt !== '') {
+                                mode = "CONFIGURADA";
+                                vlan = "Customizada";
+                            }
+                            activeSw.ports[pNum] = { mode: mode, vlan: vlan, device: txt || "Pronta para provisionamento." };
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- SISTEMA DE DIÁLOGO / CONFIRMAÇÃO ---
+        function triggerApplyChanges() {
+            const modal = document.getElementById('confirmation-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeConfirmationModal() {
+            const modal = document.getElementById('confirmation-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function confirmAndApplyChanges() {
+            closeConfirmationModal();
+            // Executa re-renderização completa baseada no estado atualizado da memória
+            updateDashboardMetrics();
+            populateSelectorsUI();
+            alert("Alterações aplicadas com sucesso na memória volátil do sistema!");
+        }
+
+        function saveAndOverwriteLocalState() {
+            fetch('/save-backup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(runtimeNetworkState)
+            })
+            .then(res => {
+                if(res.ok) alert("Estado sincronizado e persistido na pasta raiz do servidor!");
+                else throw new Error();
+            })
+            .catch(() => {
+                alert("Rodando via File Protocol local. Efetuando o download para substituição manual.");
+                exportStateBackupJSON();
+            });
+        }
+
+        function exportStateBackupJSON() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(runtimeNetworkState, null, 4));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", JSON_FILE);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            totalModificationCounter = 0;
+            updateDashboardMetrics();
+        }
+
+        function updateDashboardMetrics() {
+            const swKeys = Object.keys(runtimeNetworkState.switches);
+            document.getElementById('stat-total-switches').innerText = swKeys.length;
+            document.getElementById('stat-total-vlans').innerText = runtimeNetworkState.vlans.length;
+            document.getElementById('stat-unsaved-changes').innerText = totalModificationCounter;
+
+            let activeCount = 0;
+            swKeys.forEach(k => {
+                if(runtimeNetworkState.switches[k].ports){
+                    Object.values(runtimeNetworkState.switches[k].ports).forEach(p => {
+                        if(p.mode !== "LIVRE") activeCount++;
+                    });
+                }
+            });
+            document.getElementById('stat-active-ports').innerText = activeCount;
+
+            let dhcpCount = runtimeNetworkState.vlans.filter(v => v.dhcp && v.dhcp.toUpperCase().includes('SIM')).length;
+            document.getElementById('stat-dhcp-count').innerText = `${dhcpCount} Escopos com DHCP`;
+        }
+
+        function populateSelectorsUI() {
+            const select = document.getElementById('switch-selector');
+            const vlanFilter = document.getElementById('vlan-filter');
+
+            const currentSelectedValue = select.value;
+            select.innerHTML = '';
+            vlanFilter.innerHTML = '<option value="ALL">Todas as portas</option>';
+
+            const swKeys = Object.keys(runtimeNetworkState.switches);
+            if(swKeys.length === 0) return;
+
+            swKeys.forEach(k => {
+                let dev = runtimeNetworkState.switches[k];
+                let opt = document.createElement('option');
+                opt.value = k;
+                opt.text = `${dev.name} ── (${dev.ip})`;
+                select.add(opt);
+            });
+
+            runtimeNetworkState.vlans.forEach(v => {
+                let opt = document.createElement('option');
+                opt.value = v.id;
+                opt.text = `VLAN ${v.id} - ${v.desc}`;
+                vlanFilter.add(opt);
+            });
+
+            if(swKeys.includes(currentSelectedValue)) {
+                select.value = currentSelectedValue;
+                changeSwitch(currentSelectedValue);
+            } else {
+                changeSwitch(swKeys[0]);
+            }
+            renderVlansSidebarUI();
+        }
+
+        function changeSwitch(key) {
+            activeSwitchKey = key;
+            const sw = runtimeNetworkState.switches[key];
+            if(!sw) return;
+
+            document.getElementById('edit-sw-name').value = sw.name;
+            document.getElementById('edit-sw-ip').value = sw.ip;
+            document.getElementById('edit-sw-local').value = sw.local;
+            closeEditorPanel();
+            applyFilters();
+        }
+
+        function updateCurrentSwitchMetadata() {
+            const sw = runtimeNetworkState.switches[activeSwitchKey];
+            if(!sw) return;
+            sw.name = document.getElementById('edit-sw-name').value;
+            sw.ip = document.getElementById('edit-sw-ip').value;
+            sw.local = document.getElementById('edit-sw-local').value;
+            totalModificationCounter++;
+            document.getElementById('stat-unsaved-changes').innerText = totalModificationCounter;
+        }
+
+        function applyFilters() {
+            const sw = runtimeNetworkState.switches[activeSwitchKey];
+            if(!sw || !sw.ports) return;
+
+            const selectedVlan = document.getElementById('vlan-filter').value;
+            const searchQuery = document.getElementById('dashboard-search').value.toLowerCase().trim();
+            const grid = document.getElementById('ports-grid');
+            grid.innerHTML = '';
+
+            let portKeys = Object.keys(sw.ports).sort((a,b) => parseInt(a) - parseInt(b));
+            let visibleCount = 0;
+
+            portKeys.forEach(pk => {
+                const pData = sw.ports[pk];
+                if (selectedVlan !== "ALL" && pData.vlan !== selectedVlan && !pData.vlan.includes(selectedVlan)) return;
+                if (searchQuery !== "" && !`${pk} ${pData.mode} ${pData.vlan} ${pData.device}`.toLowerCase().includes(searchQuery)) return;
+
+                visibleCount++;
+                let bgStyle = "bg-brand-card border-brand-border text-brand-textMuted hover:border-brand-accent";
+                let iconSymbol = "check_box_outline_blank";
+
+                if (pData.mode === "TRUNK") { iconSymbol = "settings_ethernet"; bgStyle = "bg-blue-600/20 border-brand-accent text-brand-accent font-bold"; }
+                else if (pData.mode === "ACCESS") { iconSymbol = "settings_ethernet"; bgStyle = "bg-emerald-600/20 border-brand-success text-brand-success font-bold"; }
+                else if (pData.mode === "CONFIGURADA") { iconSymbol = "bolt"; bgStyle = "bg-amber-600/20 border-brand-warning text-brand-warning font-bold"; }
+
+                if (activePortEditingId === pk) bgStyle += " ring-2 ring-brand-accent border-transparent";
+
+                const btn = document.createElement('button');
+                btn.className = `p-3 rounded-xl border text-xs flex flex-col items-center justify-between transition-all duration-150 transform hover:-translate-y-0.5 ${bgStyle}`;
+                btn.onclick = () => openPortEditorUI(pk, pData);
+                btn.innerHTML = `
+                    <span class="text-[10px] opacity-70 font-mono">P. ${pk}</span>
+                    <span class="material-symbols-outlined text-base my-1.5">${iconSymbol}</span>
+                    <span class="text-[9px] opacity-80 font-mono">${pData.vlan === '-' ? 'Livre' : 'VLAN ' + pData.vlan}</span>
+                `;
+                grid.appendChild(btn);
+            });
+            document.getElementById('showing-ports-count').innerText = `Exibindo ${visibleCount} de ${portKeys.length} interfaces`;
+        }
+
+        function openPortEditorUI(portId, data) {
+            activePortEditingId = portId;
+            document.getElementById('editor-port-id').innerText = portId;
+            document.getElementById('editor-port-mode').value = data.mode;
+            document.getElementById('editor-port-vlan').value = data.vlan;
+            document.getElementById('editor-port-device').value = data.device;
+            document.getElementById('live-port-editor-panel').classList.remove('hidden');
+            applyFilters();
+        }
+
+        function syncPortChangesToMemory() {
+            const sw = runtimeNetworkState.switches[activeSwitchKey];
+            if(!sw || !activePortEditingId) return;
+
+            const targetPort = sw.ports[activePortEditingId];
+            targetPort.mode = document.getElementById('editor-port-mode').value;
+            targetPort.vlan = document.getElementById('editor-port-vlan').value;
+            targetPort.device = document.getElementById('editor-port-device').value;
+
+            totalModificationCounter++;
+            document.getElementById('stat-unsaved-changes').innerText = totalModificationCounter;
+        }
+
+        function closeEditorPanel() {
+            activePortEditingId = null;
+            document.getElementById('live-port-editor-panel').classList.add('hidden');
+            applyFilters();
+        }
+
+        // --- OPERAÇÕES CRUD DE VLANs ---
+        function addNewVlanRow() {
+            let nextId = prompt("Defina o ID numérico da nova VLAN:", "");
+            if(!nextId || nextId.trim() === "") return;
+            nextId = nextId.trim();
+
+            const vlanExiste = runtimeNetworkState.vlans.some(v => v.id === nextId);
+            if(vlanExiste) {
+                alert(`Erro: A VLAN ${nextId} já existe no zoneamento lógico.`);
+                return;
+            }
+
+            let nextDesc = prompt("Descrição / Nome do escopo:", "Nova Rede Operacional");
+            if(nextDesc === null) return;
+
+            runtimeNetworkState.vlans.push({
+                id: nextId,
+                ip: "10.104." + nextId + ".1/24",
+                desc: nextDesc.trim() || "Sem descrição",
+                dhcp: "NÃO"
+            });
+
+            totalModificationCounter++;
+            renderVlansSidebarUI();
+            updateDashboardMetrics();
+        }
+
+        function removeVlanRow(index, vlanId) {
+            if(!confirm(`Deseja remover completamente a VLAN ${vlanId} do zoneamento lógico? Interfaces mapeadas com este ID não serão excluídas automaticamente.`)) return;
+
+            runtimeNetworkState.vlans.splice(index, 1);
+            totalModificationCounter++;
+            renderVlansSidebarUI();
+            updateDashboardMetrics();
+        }
+
+        function updateVlanRowData(index, field, value) {
+            runtimeNetworkState.vlans[index][field] = value;
+            totalModificationCounter++;
+            document.getElementById('stat-unsaved-changes').innerText = totalModificationCounter;
+        }
+
+        function renderVlansSidebarUI() {
+            const container = document.getElementById('vlans-list-container');
+            container.innerHTML = '';
+
+            if(runtimeNetworkState.vlans.length === 0) {
+                container.innerHTML = '<div class="text-center py-6 text-brand-textMuted text-xs">Nenhuma VLAN configurada no zoneamento.</div>';
+                return;
+            }
+
+            runtimeNetworkState.vlans.forEach((v, index) => {
+                const card = document.createElement('div');
+                card.className = "p-3 bg-brand-dark/80 border border-brand-border rounded-xl text-xs flex items-center justify-between gap-2 hover:border-brand-border/80 transition-all";
+                card.innerHTML = `
+                    <div class="flex items-center gap-2 flex-1">
+                        <span class="font-bold text-brand-warning bg-brand-warning/10 px-2 py-1 rounded border border-brand-warning/20 font-mono min-w-[50px] text-center">ID ${v.id}</span>
+                        <input type="text" value="${v.desc}" onchange="updateVlanRowData(${index}, 'desc', this.value)" class="bg-transparent text-white font-semibold outline-none w-full border-b border-transparent hover:border-brand-border focus:border-brand-accent px-1 transition-colors">
+                    </div>
+                    <button onclick="removeVlanRow(${index}, '${v.id}')" class="text-brand-textMuted hover:text-brand-danger p-1 rounded transition-colors flex items-center justify-center" title="Excluir VLAN">
+                        <span class="material-symbols-outlined text-base">delete</span>
+                    </button>
+                `;
+                container.appendChild(card);
+            });
+        }
+    </script>
+</body>
+</html>
